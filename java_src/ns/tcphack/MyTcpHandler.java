@@ -39,8 +39,10 @@ class MyTcpHandler extends TcpHandler {
 			int i;
 			System.out.print("Received " + len + " bytes: ");
 			for (i = 0; i < len; i++)
-				System.out.print(rxpkt[i] + " ");
+				System.out.print(Integer.toBinaryString(rxpkt[i]) + " ");
 			System.out.println("");
+			
+			System.out.println("flags: " + rxpkt[53]);
 		}
 	}
 
@@ -84,15 +86,37 @@ class MyTcpHandler extends TcpHandler {
 		txpkt[42] = 0;
 		txpkt[43] = serverPort;
 		// sequence number
-		txpkt[44] = Integer.parseInt(sequence.substring(0, 8), 2);
-		txpkt[45] = Integer.parseInt(sequence.substring(8, 16), 2);
-		txpkt[46] = Integer.parseInt(sequence.substring(16, 24), 2);
-		txpkt[47] = Integer.parseInt(sequence.substring(24, 32), 2);
+		if (sequence.length() <= 8) {
+			txpkt[47] = Integer.parseInt(sequence.substring(0, sequence.length()), 2);
+		} else if (sequence.length() <=16) {
+			txpkt[46] = Integer.parseInt(sequence.substring(0, 8), 2);
+			txpkt[47] = Integer.parseInt(sequence.substring(8, sequence.length()), 2);
+		} else if (sequence.length() <= 24) {
+			txpkt[44] = Integer.parseInt(sequence.substring(0, 8), 2);
+			txpkt[45] = Integer.parseInt(sequence.substring(8, 16), 2);
+			txpkt[46] = Integer.parseInt(sequence.substring(16, sequence.length()), 2);
+		} else {
+			txpkt[44] = Integer.parseInt(sequence.substring(0, 8), 2);
+			txpkt[45] = Integer.parseInt(sequence.substring(8, 16), 2);
+			txpkt[46] = Integer.parseInt(sequence.substring(16, 24), 2);
+			txpkt[47] = Integer.parseInt(sequence.substring(24, sequence.length()), 2);
+		}
 		// acknowledgement number
-		txpkt[48] = Integer.parseInt(acknowledge.substring(0, 8), 2);
-		txpkt[49] = Integer.parseInt(acknowledge.substring(8, 16), 2);
-		txpkt[50] = Integer.parseInt(acknowledge.substring(16, 24), 2);
-		txpkt[51] = Integer.parseInt(acknowledge.substring(24, 32), 2);
+		if (acknowledge.length() <= 8) {
+			txpkt[48] = Integer.parseInt(acknowledge.substring(0, acknowledge.length()), 2);
+		} else if (acknowledge.length() <=16) {
+			txpkt[48] = Integer.parseInt(acknowledge.substring(0, 8), 2);
+			txpkt[49] = Integer.parseInt(acknowledge.substring(8, acknowledge.length()), 2);
+		} else if (acknowledge.length() <= 24) {
+			txpkt[48] = Integer.parseInt(acknowledge.substring(0, 8), 2);
+			txpkt[49] = Integer.parseInt(acknowledge.substring(8, 16), 2);
+			txpkt[50] = Integer.parseInt(acknowledge.substring(16, acknowledge.length()), 2);
+		} else {
+			txpkt[48] = Integer.parseInt(acknowledge.substring(0, 8), 2);
+			txpkt[49] = Integer.parseInt(acknowledge.substring(8, 16), 2);
+			txpkt[50] = Integer.parseInt(acknowledge.substring(16, 24), 2);
+			txpkt[51] = Integer.parseInt(acknowledge.substring(24, acknowledge.length()), 2);
+		}
 		// header length upper nibble
 		txpkt[52] = 0x50;
 		// code bits / flags
@@ -115,7 +139,21 @@ class MyTcpHandler extends TcpHandler {
 
 		// data
 		
-
+		if (sequence.length() <= 8) {
+			txpkt[47] = Integer.parseInt(sequence.substring(0, sequence.length()), 2);
+		} else if (sequence.length() <=16) {
+			txpkt[46] = Integer.parseInt(sequence.substring(0, 8), 2);
+			txpkt[47] = Integer.parseInt(sequence.substring(8, sequence.length()), 2);
+		} else if (sequence.length() <= 24) {
+			txpkt[44] = Integer.parseInt(sequence.substring(0, 8), 2);
+			txpkt[45] = Integer.parseInt(sequence.substring(8, 16), 2);
+			txpkt[46] = Integer.parseInt(sequence.substring(16, sequence.length()), 2);
+		} else {
+			txpkt[44] = Integer.parseInt(sequence.substring(0, 8), 2);
+			txpkt[45] = Integer.parseInt(sequence.substring(8, 16), 2);
+			txpkt[46] = Integer.parseInt(sequence.substring(16, 24), 2);
+			txpkt[47] = Integer.parseInt(sequence.substring(24, sequence.length()), 2);
+		}
 		return txpkt;
 	}
 }
