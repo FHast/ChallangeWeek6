@@ -1,5 +1,6 @@
 package ns.tcphack;
 
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 
 class MyTcpHandler extends TcpHandler {
@@ -10,8 +11,8 @@ class MyTcpHandler extends TcpHandler {
 			0xde, 0x4b, 0x2c };
 	private int serverPort = 7710;
 
-	private int ack = -1;
-	private int seq = 0;
+	private long ack = -1;
+	private long seq = 0;
 
 	public static void main(String[] args) {
 		new MyTcpHandler();
@@ -47,10 +48,8 @@ class MyTcpHandler extends TcpHandler {
 				// Integer.toBinaryString(rxpkt[i]));
 				// System.out.println("");
 
-				int pktseq = (int) (rxpkt[44] * Math.pow(2, 24) + rxpkt[45] * Math.pow(2, 16)
-						+ rxpkt[46] * Math.pow(2, 8) + rxpkt[47]);
-				int pktack = (int) (rxpkt[48] * Math.pow(2, 24) + rxpkt[49] * Math.pow(2, 16)
-						+ rxpkt[50] * Math.pow(2, 8) + rxpkt[51]);
+				long pktseq = getSequenceNumber(rxpkt);
+				long pktack = getAckNumber(rxpkt);
 
 				// ack = ack % (int) (Math.pow(2, 32));
 				// seq = seq % (int) (Math.pow(2, 32));
@@ -64,14 +63,14 @@ class MyTcpHandler extends TcpHandler {
 
 				if (((byte) (rxpkt[53]) & 0b00000010) == 0b00000010) {
 					System.out.println("SYN \n\n");
-					
+
 					// save server seq number / our next ack
-					
-					ack = pktseq + (len - 40 - (rxpkt[5]));
+
+					ack = pktseq + (len - 40 - (rxpkt[5]) + 1);
 
 					// send ack
 
-					int[] ackpkt = getPacket(seq, ack + 1, 0);
+					int[] ackpkt = getPacket(seq, ack, 0);
 					send(ackpkt);
 
 					// SYN packet from server --> send get
@@ -84,26 +83,31 @@ class MyTcpHandler extends TcpHandler {
 					}
 					send(getpkt);
 					seq += getpktdata.size();
-				} else if (pktseq == ack) {
+				} else {
 					
-					ack = pktseq + (len - 40 - (rxpkt[5]));
+					System.out.println("\n\n" + pktseq + " / " + ack + "\n\n");
+					
+					if (pktseq == ack) {
 
-					if (((byte) (rxpkt[53]) & 0b00000001) == 0b00000001) {
-						System.out.println("FIN");
-						// FIN packet
+						ack = pktseq + (len - 40 - (rxpkt[5]));
 
-						int[] finpkt = getPacket(seq, ack, 0);
-						finpkt[53] = 0b00010001;
-						send(finpkt);
-						seq++;
-						done = true;
-					} else if (((byte) (rxpkt[53]) & 0b00001000) == 0b00001000) {
-						System.out.println("ACK");
-						// Ack packet
+						if (((byte) (rxpkt[53]) & 0b00000001) == 0b00000001) {
+							System.out.println("FIN");
+							// FIN packet
 
-						int[] ackpkt = getPacket(seq, ack, 0);
-						send(ackpkt);
-						seq++;
+							int[] finpkt = getPacket(seq, ack, 0);
+							finpkt[53] = 0b00010001;
+							send(finpkt);
+							seq++;
+							done = true;
+						} else if (((byte) (rxpkt[53]) & 0b00001000) == 0b00001000) {
+							System.out.println("ACK");
+							// Ack packet
+
+							int[] ackpkt = getPacket(seq, ack, 0);
+							send(ackpkt);
+							seq++;
+						}
 					}
 				}
 			}
@@ -217,5 +221,53 @@ class MyTcpHandler extends TcpHandler {
 		System.out.println();
 		this.sendData(pkt); // send the packet
 
+	}
+
+	private long getSequenceNumber(int[] pkt) {
+		String s1 = "" + Integer.toBinaryString(pkt[44]);
+		String s2 = "" + Integer.toBinaryString(pkt[45]);
+		String s3 = "" + Integer.toBinaryString(pkt[46]);
+		String s4 = "" + Integer.toBinaryString(pkt[47]);
+
+		while (s1.length() < 8) {
+			s1 = "0" + s1;
+		}
+		while (s2.length() < 8) {
+			s2 = "0" + s2;
+		}
+		while (s3.length() < 8) {
+			s3 = "0" + s3;
+		}
+		while (s4.length() < 8) {
+			s4 = "0" + s4;
+		}
+
+		String sequence = "" + s1 + "" + s2 + "" + s3 + "" + s4;
+
+		return Long.parseLong(sequence, 2);
+	}
+
+	private long getAckNumber(int[] pkt) {
+		String s1 = "" + Integer.toBinaryString(pkt[48]);
+		String s2 = "" + Integer.toBinaryString(pkt[49]);
+		String s3 = "" + Integer.toBinaryString(pkt[50]);
+		String s4 = "" + Integer.toBinaryString(pkt[51]);
+
+		while (s1.length() < 8) {
+			s1 = "0" + s1;
+		}
+		while (s2.length() < 8) {
+			s2 = "0" + s2;
+		}
+		while (s3.length() < 8) {
+			s3 = "0" + s3;
+		}
+		while (s4.length() < 8) {
+			s4 = "0" + s4;
+		}
+
+		String acknowledge = "" + s1 + "" + s2 + "" + s3 + "" + s4;
+
+		return Long.parseLong(acknowledge, 2);
 	}
 }
