@@ -30,6 +30,7 @@ class MyTcpHandler extends TcpHandler {
 
 		boolean done = false;
 		while (!done) {
+			System.out.println();
 			// check for reception of a packet, but wait at most 500 ms:
 			int[] rxpkt = this.receiveData(500);
 			if (rxpkt.length == 0) {
@@ -84,31 +85,34 @@ class MyTcpHandler extends TcpHandler {
 					send(getpkt);
 					seq += getpktdata.size();
 				} else {
-					
+
 					System.out.println("\n\n" + pktseq + " / " + ack + "\n\n");
-					
-					if (pktseq == ack) {
 
-						ack = pktseq + (len - 40 - (rxpkt[5]));
+					// if (pktseq == ack) {
 
-						if (((byte) (rxpkt[53]) & 0b00000001) == 0b00000001) {
-							System.out.println("FIN");
-							// FIN packet
+					System.out.println("-------------------here");
 
-							int[] finpkt = getPacket(seq, ack, 0);
-							finpkt[53] = 0b00010001;
-							send(finpkt);
-							seq++;
-							done = true;
-						} else if (((byte) (rxpkt[53]) & 0b00001000) == 0b00001000) {
-							System.out.println("ACK");
-							// Ack packet
+					ack = pktseq + (len - 40 - (rxpkt[5]));
 
-							int[] ackpkt = getPacket(seq, ack, 0);
-							send(ackpkt);
-							seq++;
-						}
+					if (((byte) (rxpkt[53]) & 0b00000001) == 0b00000001 || rxpkt[53] == 17) {
+						System.out.println("FIN");
+						// FIN packet
+
+						int[] finpkt = getPacket(seq, ack, 0);
+						finpkt[53] = 0b00010001;
+						send(finpkt);
+						seq++;
+						done = true;
+					} else if (((byte) (rxpkt[53]) & 0b00001000) == 0b00001000 || rxpkt[53] == 16) {
+						System.out.println("ACK");
+						// Ack packet
+
+						int[] ackpkt = getPacket(seq, ack, 0);
+						send(ackpkt);
+						seq++;
 					}
+					
+					// }
 				}
 			}
 		}
@@ -163,7 +167,7 @@ class MyTcpHandler extends TcpHandler {
 		txpkt[41] = 0b11010010;
 		// dest port
 		txpkt[42] = 0b00011110;
-		txpkt[43] = 0b00011110;
+		txpkt[43] = 0b00011111;
 		// sequence number
 		txpkt[44] = seq[3];
 		txpkt[45] = seq[2];
@@ -216,6 +220,7 @@ class MyTcpHandler extends TcpHandler {
 		// System.out.println(i + " | " + Integer.toBinaryString(pkt[i]) + " ");
 		// System.out.println("");
 		System.out.println(pkt[44] + " / " + pkt[45] + " / " + pkt[46] + " / " + pkt[47]);
+		System.out.println(pkt[48] + " / " + pkt[49] + " / " + pkt[50] + " / " + pkt[51]);
 		System.out.println("flags: " + pkt[53]);
 		System.out.println("---------------");
 		System.out.println();
