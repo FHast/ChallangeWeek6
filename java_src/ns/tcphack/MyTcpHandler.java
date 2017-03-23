@@ -10,7 +10,7 @@ class MyTcpHandler extends TcpHandler {
 			0xde, 0x4b, 0x2c };
 	private int serverPort = 7710;
 
-	private int ack = 0;
+	private int ack = -1;
 	private int seq = 0;
 
 	public static void main(String[] args) {
@@ -25,6 +25,7 @@ class MyTcpHandler extends TcpHandler {
 		// set syn flag
 		synpkt[53] = 0b00000010;
 		send(synpkt);
+		seq++;
 
 		boolean done = false;
 		while (!done) {
@@ -51,10 +52,10 @@ class MyTcpHandler extends TcpHandler {
 				int pktack = (int) (rxpkt[48] * Math.pow(2, 24) + rxpkt[49] * Math.pow(2, 16)
 						+ rxpkt[50] * Math.pow(2, 8) + rxpkt[51]);
 
-				ack = pktseq + (len - 64) + 1;
-				ack = ack % (int) (Math.pow(2, 32));
-				seq = seq % (int) (Math.pow(2, 32));
+				// ack = ack % (int) (Math.pow(2, 32));
+				// seq = seq % (int) (Math.pow(2, 32));
 
+				System.out.println("Received " + len + " bytes: ");
 				System.out.println("Sequence number: " + pktseq);
 				System.out.println(rxpkt[44] + " / " + rxpkt[45] + " / " + rxpkt[46] + " / " + rxpkt[47]);
 				System.out.println("Acknowledgement number: " + pktack);
@@ -62,7 +63,17 @@ class MyTcpHandler extends TcpHandler {
 				System.out.print("flags: " + rxpkt[53] + " = ");
 
 				if (((byte) (rxpkt[53]) & 0b00000010) == 0b00000010) {
-					System.out.println("SYN");
+					System.out.println("SYN \n\n");
+					
+					// save server seq number / our next ack
+					
+					ack = pktseq + (len - 40 - (rxpkt[5]));
+
+					// send ack
+
+					int[] ackpkt = getPacket(seq, ack + 1, 0);
+					send(ackpkt);
+
 					// SYN packet from server --> send get
 
 					ArrayList<Integer> getpktdata = getData(
@@ -73,33 +84,46 @@ class MyTcpHandler extends TcpHandler {
 					}
 					send(getpkt);
 					seq += getpktdata.size();
-				} else if (((byte) (rxpkt[53]) & 0b00000001) == 0b00000001) {
-					System.out.println("FIN");
-					// FIN packet
+				} else if (pktseq == ack) {
+					
+					ack = pktseq + (len - 40 - (rxpkt[5]));
 
-					int[] finpkt = getPacket(seq, ack, 0);
-					finpkt[53] = 0b00010001;
-					send(finpkt);
-					seq++;
-					done = true;
-				} else if (((byte) (rxpkt[53]) & 0b00010000) == 0b00010000) {
-					System.out.println("ACK");
-					// Ack packet
+					if (((byte) (rxpkt[53]) & 0b00000001) == 0b00000001) {
+						System.out.println("FIN");
+						// FIN packet
 
-					int[] ackpkt = getPacket(seq, ack, 0);
-					send(ackpkt);
-					seq++;
+						int[] finpkt = getPacket(seq, ack, 0);
+						finpkt[53] = 0b00010001;
+						send(finpkt);
+						seq++;
+						done = true;
+					} else if (((byte) (rxpkt[53]) & 0b00001000) == 0b00001000) {
+						System.out.println("ACK");
+						// Ack packet
+
+						int[] ackpkt = getPacket(seq, ack, 0);
+						send(ackpkt);
+						seq++;
+					}
 				}
 			}
 		}
 	}
 
-	private int[] getPacket(long seq, long ack, int databytes) {
-		String sequence = Long.toBinaryString(seq);
-		String acknowledge = Long.toBinaryString(ack);
+	private int[] getPacket(long s, long a, int databytes) {
+		int[] seq = new int[4];
 
-		int seql = sequence.length();
-		int ackl = acknowledge.length();
+		seq[0] = (byte) (s & 0xFF);
+		seq[1] = (byte) ((s >> 8) & 0xFF);
+		seq[2] = (byte) ((s >> 16) & 0xFF);
+		seq[3] = (byte) ((s >> 24) & 0xFF);
+
+		int[] ack = new int[4];
+
+		ack[0] = (byte) (a & 0xFF);
+		ack[1] = (byte) ((a >> 8) & 0xFF);
+		ack[2] = (byte) ((a >> 16) & 0xFF);
+		ack[3] = (byte) ((a >> 24) & 0xFF);
 
 		// array of bytes in which we're going to build our packet:
 		int[] txpkt = new int[60 + databytes];
@@ -114,7 +138,7 @@ class MyTcpHandler extends TcpHandler {
 		txpkt[3] = 0x00;
 		// payload length
 		txpkt[4] = 0x00;
-		txpkt[5] = 20;
+		txpkt[5] = 20 + databytes;
 		// next header
 		txpkt[6] = 253;
 		// hop limit
@@ -137,41 +161,19 @@ class MyTcpHandler extends TcpHandler {
 		txpkt[42] = 0b00011110;
 		txpkt[43] = 0b00011110;
 		// sequence number
-		if (sequence.length() <= 8) {
-			txpkt[47] = Integer.parseInt(sequence.substring(0, seql), 2);
-		} else if (sequence.length() <= 16) {
-			txpkt[47] = Integer.parseInt(sequence.substring(seql - 8, seql), 2);
-			txpkt[46] = Integer.parseInt(sequence.substring(0, seql - 8), 2);
-		} else if (sequence.length() <= 24) {
-			txpkt[47] = Integer.parseInt(sequence.substring(seql - 8, seql), 2);
-			txpkt[46] = Integer.parseInt(sequence.substring(seql - 16, seql - 8), 2);
-			txpkt[45] = Integer.parseInt(sequence.substring(0, seql - 16), 2);
-		} else {
-			txpkt[47] = Integer.parseInt(sequence.substring(seql - 8, seql), 2);
-			txpkt[46] = Integer.parseInt(sequence.substring(seql - 16, seql - 8), 2);
-			txpkt[45] = Integer.parseInt(sequence.substring(seql - 24, seql - 16), 2);
-			txpkt[44] = Integer.parseInt(sequence.substring(0, seql - 24), 2);
-		}
+		txpkt[44] = seq[3];
+		txpkt[45] = seq[2];
+		txpkt[46] = seq[1];
+		txpkt[47] = seq[0];
 		// acknowledgement number
-		if (acknowledge.length() <= 8) {
-			txpkt[51] = Integer.parseInt(acknowledge.substring(0, ackl), 2);
-		} else if (acknowledge.length() <= 16) {
-			txpkt[51] = Integer.parseInt(acknowledge.substring(ackl - 8, ackl), 2);
-			txpkt[50] = Integer.parseInt(acknowledge.substring(0, ackl - 8), 2);
-		} else if (acknowledge.length() <= 24) {
-			txpkt[51] = Integer.parseInt(acknowledge.substring(ackl - 8, ackl), 2);
-			txpkt[50] = Integer.parseInt(acknowledge.substring(ackl - 16, ackl - 8), 2);
-			txpkt[49] = Integer.parseInt(acknowledge.substring(0, ackl - 16), 2);
-		} else {
-			txpkt[51] = Integer.parseInt(acknowledge.substring(ackl - 8, ackl), 2);
-			txpkt[50] = Integer.parseInt(acknowledge.substring(ackl - 16, ackl - 8), 2);
-			txpkt[49] = Integer.parseInt(acknowledge.substring(ackl - 24, ackl - 16), 2);
-			txpkt[48] = Integer.parseInt(acknowledge.substring(0, ackl - 24), 2);
-		}
+		txpkt[48] = ack[3];
+		txpkt[49] = ack[2];
+		txpkt[50] = ack[1];
+		txpkt[51] = ack[0];
 		// header length upper nibble
 		txpkt[52] = 0x50;
 		// code bits / flags
-		if (ack != 0) {
+		if (a != 0) {
 			txpkt[53] = 0b00010000;
 		} else {
 			txpkt[53] = 0b00000000;
