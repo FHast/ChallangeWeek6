@@ -11,6 +11,7 @@ class MyTcpHandler extends TcpHandler {
 	private int serverPort = 7710;
 
 	private int ack = 0;
+	private int seq = 0;
 
 	public static void main(String[] args) {
 		new MyTcpHandler();
@@ -19,14 +20,13 @@ class MyTcpHandler extends TcpHandler {
 	public MyTcpHandler() {
 		super();
 
+		// initial syn packet
 		int[] synpkt = getPacket(0, 0, 0);
 		// set syn flag
 		synpkt[53] = 0b00000010;
-
-		boolean done = false;
-
 		send(synpkt);
 
+		boolean done = false;
 		while (!done) {
 			// check for reception of a packet, but wait at most 500 ms:
 			int[] rxpkt = this.receiveData(500);
@@ -34,41 +34,62 @@ class MyTcpHandler extends TcpHandler {
 				// nothing has been received yet
 				System.out.println("Nothing...");
 				continue;
-			}
-
-			// something has been received
-			int len = rxpkt.length;
-
-			// print the received bytes:
-			System.out.println("Received " + len + " bytes: ");
-			for (int i = 0; i < len; i++)
-				System.out.println(i + " | " + Integer.toBinaryString(rxpkt[i]));
-			System.out.println("");
-
-			int seq = (int) (rxpkt[44] * Math.pow(2, 24) + rxpkt[45] * Math.pow(2, 16) + rxpkt[46] * Math.pow(2, 8)
-					+ rxpkt[47]);
-
-			System.out.println("Sequence number: " + seq);
-			ack = seq + (len - 64) + 1;
-
-			System.out.println("flags: " + rxpkt[53]);
-			if (((byte) (rxpkt[53]) & 0b00000010) == 0b00000010) {
-				// SYN packet from server --> send get
-				ArrayList<Integer> getpktdata = getData("GET /s1859994 \n \n");
-				int[] getpkt = getPacket(1, 1, getpktdata.size());
-				for (int i = 0; i < getpktdata.size(); i++) {
-					getpkt[60 + i] = getpktdata.get(i);
-				}
-				send(getpkt);
-			} else if (((byte) (rxpkt[53]) & 0b00000001) != 0b00000001) {
-				// kein FIN
-				int[] ackpkt = getPacket(1, ack, 0);
-				send(ackpkt);
 			} else {
-				// FIN
-				int[] finpkt = getPacket(1, ack, 0);
-				finpkt[53] = 0b00010001;
-				send(finpkt);
+
+				// something has been received
+				int len = rxpkt.length;
+
+				// print the received bytes:
+				// System.out.println("Received " + len + " bytes: ");
+				// for (int i = 0; i < len; i++)
+				// System.out.println(i + " | " +
+				// Integer.toBinaryString(rxpkt[i]));
+				// System.out.println("");
+
+				int pktseq = (int) (rxpkt[44] * Math.pow(2, 24) + rxpkt[45] * Math.pow(2, 16)
+						+ rxpkt[46] * Math.pow(2, 8) + rxpkt[47]);
+				int pktack = (int) (rxpkt[48] * Math.pow(2, 24) + rxpkt[49] * Math.pow(2, 16)
+						+ rxpkt[50] * Math.pow(2, 8) + rxpkt[51]);
+
+				ack = pktseq + (len - 64) + 1;
+				ack = ack % (int) (Math.pow(2, 32));
+				seq = seq % (int) (Math.pow(2, 32));
+
+				System.out.println("Sequence number: " + pktseq);
+				System.out.println(rxpkt[44] + " / " + rxpkt[45] + " / " + rxpkt[46] + " / " + rxpkt[47]);
+				System.out.println("Acknowledgement number: " + pktack);
+				System.out.println(rxpkt[48] + " / " + rxpkt[49] + " / " + rxpkt[50] + " / " + rxpkt[51]);
+				System.out.print("flags: " + rxpkt[53] + " = ");
+
+				if (((byte) (rxpkt[53]) & 0b00000010) == 0b00000010) {
+					System.out.println("SYN");
+					// SYN packet from server --> send get
+
+					ArrayList<Integer> getpktdata = getData(
+							"GET /s1859994 HTTP/1.1\r\nHost: 2001:67c:2564:a170:204:23ff:fede:4b2c \r\n\r\n");
+					int[] getpkt = getPacket(seq, ack, getpktdata.size());
+					for (int i = 0; i < getpktdata.size(); i++) {
+						getpkt[60 + i] = getpktdata.get(i);
+					}
+					send(getpkt);
+					seq += getpktdata.size();
+				} else if (((byte) (rxpkt[53]) & 0b00000001) == 0b00000001) {
+					System.out.println("FIN");
+					// FIN packet
+
+					int[] finpkt = getPacket(seq, ack, 0);
+					finpkt[53] = 0b00010001;
+					send(finpkt);
+					seq++;
+					done = true;
+				} else if (((byte) (rxpkt[53]) & 0b00010000) == 0b00010000) {
+					System.out.println("ACK");
+					// Ack packet
+
+					int[] ackpkt = getPacket(seq, ack, 0);
+					send(ackpkt);
+					seq++;
+				}
 			}
 		}
 	}
@@ -76,6 +97,9 @@ class MyTcpHandler extends TcpHandler {
 	private int[] getPacket(long seq, long ack, int databytes) {
 		String sequence = Long.toBinaryString(seq);
 		String acknowledge = Long.toBinaryString(ack);
+
+		int seql = sequence.length();
+		int ackl = acknowledge.length();
 
 		// array of bytes in which we're going to build our packet:
 		int[] txpkt = new int[60 + databytes];
@@ -114,35 +138,35 @@ class MyTcpHandler extends TcpHandler {
 		txpkt[43] = 0b00011110;
 		// sequence number
 		if (sequence.length() <= 8) {
-			txpkt[44] = Integer.parseInt(sequence.substring(0, sequence.length()), 2);
+			txpkt[47] = Integer.parseInt(sequence.substring(0, seql), 2);
 		} else if (sequence.length() <= 16) {
-			txpkt[44] = Integer.parseInt(sequence.substring(0, 8), 2);
-			txpkt[45] = Integer.parseInt(sequence.substring(8, sequence.length()), 2);
+			txpkt[47] = Integer.parseInt(sequence.substring(seql - 8, seql), 2);
+			txpkt[46] = Integer.parseInt(sequence.substring(0, seql - 8), 2);
 		} else if (sequence.length() <= 24) {
-			txpkt[44] = Integer.parseInt(sequence.substring(0, 8), 2);
-			txpkt[45] = Integer.parseInt(sequence.substring(8, 16), 2);
-			txpkt[46] = Integer.parseInt(sequence.substring(16, sequence.length()), 2);
+			txpkt[47] = Integer.parseInt(sequence.substring(seql - 8, seql), 2);
+			txpkt[46] = Integer.parseInt(sequence.substring(seql - 16, seql - 8), 2);
+			txpkt[45] = Integer.parseInt(sequence.substring(0, seql - 16), 2);
 		} else {
-			txpkt[44] = Integer.parseInt(sequence.substring(0, 8), 2);
-			txpkt[45] = Integer.parseInt(sequence.substring(8, 16), 2);
-			txpkt[46] = Integer.parseInt(sequence.substring(16, 24), 2);
-			txpkt[47] = Integer.parseInt(sequence.substring(24, sequence.length()), 2);
+			txpkt[47] = Integer.parseInt(sequence.substring(seql - 8, seql), 2);
+			txpkt[46] = Integer.parseInt(sequence.substring(seql - 16, seql - 8), 2);
+			txpkt[45] = Integer.parseInt(sequence.substring(seql - 24, seql - 16), 2);
+			txpkt[44] = Integer.parseInt(sequence.substring(0, seql - 24), 2);
 		}
 		// acknowledgement number
 		if (acknowledge.length() <= 8) {
-			txpkt[48] = Integer.parseInt(acknowledge.substring(0, acknowledge.length()), 2);
+			txpkt[51] = Integer.parseInt(acknowledge.substring(0, ackl), 2);
 		} else if (acknowledge.length() <= 16) {
-			txpkt[48] = Integer.parseInt(acknowledge.substring(0, 8), 2);
-			txpkt[49] = Integer.parseInt(acknowledge.substring(8, acknowledge.length()), 2);
+			txpkt[51] = Integer.parseInt(acknowledge.substring(ackl - 8, ackl), 2);
+			txpkt[50] = Integer.parseInt(acknowledge.substring(0, ackl - 8), 2);
 		} else if (acknowledge.length() <= 24) {
-			txpkt[48] = Integer.parseInt(acknowledge.substring(0, 8), 2);
-			txpkt[49] = Integer.parseInt(acknowledge.substring(8, 16), 2);
-			txpkt[50] = Integer.parseInt(acknowledge.substring(16, acknowledge.length()), 2);
+			txpkt[51] = Integer.parseInt(acknowledge.substring(ackl - 8, ackl), 2);
+			txpkt[50] = Integer.parseInt(acknowledge.substring(ackl - 16, ackl - 8), 2);
+			txpkt[49] = Integer.parseInt(acknowledge.substring(0, ackl - 16), 2);
 		} else {
-			txpkt[48] = Integer.parseInt(acknowledge.substring(0, 8), 2);
-			txpkt[49] = Integer.parseInt(acknowledge.substring(8, 16), 2);
-			txpkt[50] = Integer.parseInt(acknowledge.substring(16, 24), 2);
-			txpkt[51] = Integer.parseInt(acknowledge.substring(24, acknowledge.length()), 2);
+			txpkt[51] = Integer.parseInt(acknowledge.substring(ackl - 8, ackl), 2);
+			txpkt[50] = Integer.parseInt(acknowledge.substring(ackl - 16, ackl - 8), 2);
+			txpkt[49] = Integer.parseInt(acknowledge.substring(ackl - 24, ackl - 16), 2);
+			txpkt[48] = Integer.parseInt(acknowledge.substring(0, ackl - 24), 2);
 		}
 		// header length upper nibble
 		txpkt[52] = 0x50;
@@ -179,10 +203,17 @@ class MyTcpHandler extends TcpHandler {
 	}
 
 	private void send(int[] pkt) {
-		System.out.println("Sending " + pkt.length + " bytes: ");
-		for (int i = 0; i < pkt.length; i++)
-			System.out.println(i + " | " + Integer.toBinaryString(pkt[i]) + " ");
-		System.out.println("");
+		System.out.println();
+		System.out.println("<<<<< SEND >>>>>");
+		// System.out.println("Sending " + pkt.length + " bytes: ");
+		// for (int i = 0; i < pkt.length; i++)
+		// System.out.println(i + " | " + Integer.toBinaryString(pkt[i]) + " ");
+		// System.out.println("");
+		System.out.println(pkt[44] + " / " + pkt[45] + " / " + pkt[46] + " / " + pkt[47]);
+		System.out.println("flags: " + pkt[53]);
+		System.out.println("---------------");
+		System.out.println();
 		this.sendData(pkt); // send the packet
+
 	}
 }
